@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<classpath>
+	<classpathentry kind="src" path="src"/>
+	<classpathentry kind="con" path="org.eclipse.jdt.launching.JRE_CONTAINER"/>
+	<classpathentry kind="con" path="org.eclipse.jdt.USER_LIBRARY/ProcessingExt_GLGraphics"/>
+	<classpathentry kind="con" path="org.eclipse.jdt.USER_LIBRARY/ProcessingExt_Syphon"/>
+	<classpathentry kind="con" path="org.eclipse.jdt.USER_LIBRARY/libX_java2CBridge"/>
+	<classpathentry kind="con" path="org.eclipse.jdt.USER_LIBRARY/libX_javaCL"/>
+	<classpathentry kind="con" path="org.eclipse.jdt.USER_LIBRARY/Processing2.0"/>
+	<classpathentry kind="output" path="bin"/>
+</classpath>
