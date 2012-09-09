@@ -18,6 +18,8 @@ import java.util.*;
 import java.util.zip.*; 
 import java.util.regex.*; 
 
+import codeanticode.syphon.*;
+
 public class Smoke  extends PApplet{
 
 	// smoke2 by Glen Murphy.
@@ -48,6 +50,12 @@ public class Smoke  extends PApplet{
 	float randomGustSize;
 	float randomGustXvel;
 	float randomGustYvel;
+
+	SyphonServer server;
+	SyphonClient client;
+
+	PImage img;
+	PGraphics canvas;
 
 
 	class particle {
@@ -196,8 +204,8 @@ public class Smoke  extends PApplet{
 					yvel += (randomGustMax-randomGust)*randomGustYvel*mod;
 				}
 			}
-			xvel *= 0.99;
-			yvel *= 0.98;
+			xvel *= 0.99f;
+			yvel *= 0.98f;
 		}
 
 		void addcolour(int amt) {
@@ -229,14 +237,16 @@ public class Smoke  extends PApplet{
 			//else {
 			//tcol = (int)col;
 			//}
-			fill(255-tcol, 255-tcol, 255-tcol);
-			rect(x,y,RES,RES);
+			canvas.fill(255, 255-tcol, 255-tcol, 255-tcol);
+			canvas.rect(x,y,RES,RES); // uses too much time to draw!!!!
 			col = 0;
 		}
 	}
 
 	public void setup() {
-		size(600,600);
+		size(600,600, P3D);
+		canvas = createGraphics(600, 600, P3D);
+
 		background(100);
 		noStroke();
 		for(int i = 0; i < PNUM; i++) {
@@ -248,9 +258,32 @@ public class Smoke  extends PApplet{
 				vbuf[i][u] = new vbuffer(i*RES,u*RES);
 			}
 		}
+
+		// Create syhpon client to receive frames 
+		// from running server with given name: 
+		client = new SyphonClient(this, "of_Dust_Kin2Syp");
+
+		// Create syhpon server to send frames out.
+		server = new SyphonServer(this, "ProcessingSyphon");
+
 	}
 
 	public void draw() {
+		 
+		if (client.available()) {
+			// The first time getImage() is called with 
+			// a null argument, it will initialize the PImage
+			// object with the correct size.
+			img = client.getImage(img); // load the pixels array with the updated image info (slow)
+			//canvas.image(img, 0, 0);
+			//img = client.getImage(img, false); // does not load the pixels array (faster)
+			image(img, 0, 0);
+		}
+
+		canvas.beginDraw();
+		canvas.background(0);
+		//canvas.lights();
+
 		int axvel = mouseX-pmouseX;
 		int ayvel = mouseY-pmouseY;
 
@@ -271,15 +304,20 @@ public class Smoke  extends PApplet{
 			randomGust--;
 		}
 
+		
+		
 		for(int i = 0; i < lwidth; i++) {
 			for(int u = 0; u < lheight; u++) {
 				vbuf[i][u].updatebuf(i,u);
 				v[i][u].col = 0;
 			}
 		}
+		
 		for(int i = 0; i < PNUM-1; i++) {
 			p[i].updatepos();
 		}
+		
+		
 		for(int i = 0; i < lwidth; i++) {
 			for(int u = 0; u < lheight; u++) {
 				v[i][u].addbuffer(i, u);
@@ -288,6 +326,19 @@ public class Smoke  extends PApplet{
 			}
 		}
 		randomGust = 0;
+		
+
+		//canvas.translate(width/2, height/2);
+		//canvas.rotateX(frameCount * 0.01f);
+		//canvas.rotateY(frameCount * 0.01f);  
+		//canvas.box(150);
+		
+		canvas.endDraw();
+		
+		//image(canvas, 0, 0);
+
+		server.sendImage(canvas);
+
 	}
 
 	static public void main(String[] passedArgs) {
