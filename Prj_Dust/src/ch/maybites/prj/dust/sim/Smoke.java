@@ -27,14 +27,14 @@ public class Smoke  extends PApplet{
 	// Code has not been optimised, and will run fairly slowly.
 
 	int WIDTH = 600;
-	int HEIGHT = 600;
+	int HEIGHT = 1200;
 
-	int RES = 2;
+	int RES = 1;
 	int PENSIZE = 30;
 
 	int lwidth = WIDTH/RES;
 	int lheight = HEIGHT/RES;
-	int PNUM = 50000;
+	int PNUM = 200000;
 	vsquare[][] v = new vsquare[lwidth+1][lheight+1];
 	vbuffer[][] vbuf = new vbuffer[lwidth+1][lheight+1];
 
@@ -213,7 +213,7 @@ public class Smoke  extends PApplet{
 			if(col > 196) col = 196;
 		}
 
-		void display(int i, int u) {
+		int display(int i, int u) {
 			float tcol = 0;
 			if(i>0 && i<lwidth-1 && u>0 && u<lheight-1) {
 				//tcol = 255-(int)((v[i-1][u].col + v[i-1][u-1].col  + v[i][u-1].col + v[i][u].col*2)*0.2);
@@ -237,15 +237,18 @@ public class Smoke  extends PApplet{
 			//else {
 			//tcol = (int)col;
 			//}
-			canvas.fill(255, 255-tcol, 255-tcol, 255-tcol);
-			canvas.rect(x,y,RES,RES); // uses too much time to draw!!!!
+			//canvas.fill(255, 255-tcol, 255-tcol, 255-tcol);
+			//canvas.rect(x,y,RES,RES); // uses too much time to draw!!!!
 			col = 0;
+			return color(255-tcol, 255-tcol, 255-tcol);
 		}
 	}
 
 	public void setup() {
-		size(600,600, P3D);
-		canvas = createGraphics(600, 600, P3D);
+		size(WIDTH,HEIGHT, P3D);
+		canvas = createGraphics(WIDTH, HEIGHT, P3D);
+
+		textFont(createFont("faucet", 24));
 
 		background(100);
 		noStroke();
@@ -277,8 +280,13 @@ public class Smoke  extends PApplet{
 			img = client.getImage(img); // load the pixels array with the updated image info (slow)
 			//canvas.image(img, 0, 0);
 			//img = client.getImage(img, false); // does not load the pixels array (faster)
-			image(img, 0, 0);
+			//image(img, 0, 0);
 		}
+
+		background(0);
+		fill(255);
+		text("fps:" + this.frameRate, 10, 20);
+
 
 		canvas.beginDraw();
 		canvas.background(0);
@@ -303,8 +311,6 @@ public class Smoke  extends PApplet{
 			}
 			randomGust--;
 		}
-
-		
 		
 		for(int i = 0; i < lwidth; i++) {
 			for(int u = 0; u < lheight; u++) {
@@ -317,22 +323,19 @@ public class Smoke  extends PApplet{
 			p[i].updatepos();
 		}
 		
+		canvas.loadPixels();
 		
 		for(int i = 0; i < lwidth; i++) {
 			for(int u = 0; u < lheight; u++) {
 				v[i][u].addbuffer(i, u);
 				v[i][u].updatevels(mouseXvel, mouseYvel);
-				v[i][u].display(i, u);
+				canvas.pixels[i+u*lwidth] = v[i][u].display(i, u);
 			}
 		}
+		canvas.updatePixels();
+		
 		randomGust = 0;
-		
-
-		//canvas.translate(width/2, height/2);
-		//canvas.rotateX(frameCount * 0.01f);
-		//canvas.rotateY(frameCount * 0.01f);  
-		//canvas.box(150);
-		
+				
 		canvas.endDraw();
 		
 		//image(canvas, 0, 0);
