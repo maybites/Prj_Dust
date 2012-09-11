@@ -1,5 +1,8 @@
 package ch.maybites.prj.dust.sim;
 
+// smoke2 code by Glen Murphy, performance improvement by Martin Fršhlich
+// View the applet in use at http://bodytag.org/
+
 import processing.core.*;
 import processing.opengl.*;
 import processing.data.*; 
@@ -19,19 +22,31 @@ import java.util.zip.*;
 import java.util.regex.*; 
 
 import codeanticode.syphon.*;
+import oscP5.*;
+import netP5.*;
 
 public class Smoke  extends PApplet{
 
-	// smoke2 by Glen Murphy.
-	// View the applet in use at http://bodytag.org/
-	// Code has not been optimised, and will run fairly slowly.
+	// final parameters
+	final int PMODE_SETUP = 0;
+	final int PMODE_WAITING = 1;
+	final int PMODE_TRIGGER = 2;
+	final int PMODE_SIMULATION = 3;
+	final int PMODE_DISSOLVE = 4;
 
-	int WIDTH = 600;
-	int HEIGHT = 1200;
+	final int UVX1 = 0;
+	final int UVY1 = 1;
+	final int UVX2 = 2;
+	final int UVY2 = 3;
+
+	int WIDTH = 400;
+	int HEIGHT = 800;
 
 	int RES = 1;
 	int PENSIZE = 30;
-
+	
+	int TRANSPARENCY = 40;
+		
 	int lwidth = WIDTH/RES;
 	int lheight = HEIGHT/RES;
 	int PNUM = 200000;
@@ -51,13 +66,298 @@ public class Smoke  extends PApplet{
 	float randomGustXvel;
 	float randomGustYvel;
 
+	boolean flagDrawSyphonCapture = false;
+	boolean flagRefreshCapture = false;
+	boolean flagSimSetup = false;
+	
+	int playmode = PMODE_SETUP;
+
 	SyphonServer server;
 	SyphonClient client;
 
-	PImage img;
+	PImage syphonCapture;
+	DustImage dust;
+	float[] syphonUV = {0.2f, 0.0f, 0.8f, 1.0f}; //x1, y1, x2, y2 from upper left corner!!!
+	float[] dustUV = {0.0f, 0.3f, 1.0f, 1.0f}; //x1, y1, x2, y2 from upper left corner!!!
+	
+	
 	PGraphics canvas;
 
+	// create OSC Server and Client
+	OscP5 oscP5;
+	NetAddress myRemoteLocation;
+	
+	gust myGust = new gust();
 
+	private void setupSimulation(){
+		int particleCount = dust.countParticles();
+		println("found " + particleCount + " dust-particles");
+		if(particleCount > 0){
+			for(int i = 0; i < PNUM; i++) {
+				PVector position = dust.getPosition(i % particleCount);
+				p[i] = new particle(position.x, position.y);
+			}
+			for(int i = 0; i <= lwidth; i++) {
+				for(int u = 0; u <= lheight; u++) {
+					v[i][u] = new vsquare(i*RES,u*RES);
+					vbuf[i][u] = new vbuffer(i*RES,u*RES);
+				}
+			}
+			flagSimSetup = true;
+		}
+	}
+
+	private void updateSimulation(){
+		if(flagSimSetup){
+			if(myGust.isAlive()){
+				mouseXvel = (int)myGust.vel.x;
+				mouseYvel = (int)myGust.vel.y;
+			}else{
+				int axvel = mouseX-pmouseX;
+				int ayvel = mouseY-pmouseY;
+				mouseXvel = (axvel != mouseXvel) ? axvel : 0;
+				mouseYvel = (ayvel != mouseYvel) ? ayvel : 0;
+			}
+
+			if(randomGust <= 0) {
+				if(random(0,10)<1) {
+					randomGustMax = (int)random(5,12);
+					randomGust = randomGustMax;
+					randomGustX = random(0,WIDTH);
+					randomGustY = random(0,HEIGHT-10);
+					randomGustSize = random(0,50);
+					if(randomGustX > WIDTH/2) randomGustXvel = random(-8,0);
+					else randomGustXvel = random(0,8);
+					randomGustYvel = random(-2,1);
+				}
+				randomGust--;
+			}
+
+			for(int i = 0; i < lwidth; i++) {
+				for(int u = 0; u < lheight; u++) {
+					vbuf[i][u].updatebuf(i,u);
+					v[i][u].col = 0;
+				}
+			}
+
+			for(int i = 0; i < PNUM-1; i++) {
+				p[i].updatepos();
+			}
+		}
+	}
+
+	private void drawSimulation(){
+		if(flagSimSetup){
+			canvas.loadPixels();		
+			for(int i = 0; i < lwidth; i++) {
+				for(int u = 0; u < lheight; u++) {
+					v[i][u].addbuffer(i, u);
+					v[i][u].updatevels(mouseXvel, mouseYvel);
+					canvas.pixels[i+u*lwidth] = v[i][u].display(i, u);
+				}
+			}
+			canvas.updatePixels();
+		}
+	}
+	
+	public void setup() {
+		size(WIDTH,HEIGHT, P3D);
+		canvas = createGraphics(WIDTH, HEIGHT, P3D);
+
+		textFont(createFont("faucet", 24));
+
+		background(100);
+		noStroke();
+
+		// Create syhpon client to receive frames 
+		// from running server with given name: 
+		client = new SyphonClient(this, "of_Dust_Kin2Syp");
+
+		// Create syhpon server to send frames out.
+		server = new SyphonServer(this, "ProcessingSyphon");
+
+		/* start oscP5, listening for incoming messages at port 12345 */
+		oscP5 = new OscP5(this,12345);
+
+		/* myRemoteLocation is a NetAddress. a NetAddress takes 2 parameters,
+		 * an ip address and a port number. myRemoteLocation is used as parameter in
+		 * oscP5.send() when sending osc packets to another computer, device, 
+		 * application.
+		 */
+		myRemoteLocation = new NetAddress("127.0.0.1",54321);
+		
+		dust = new DustImage(WIDTH, HEIGHT,RGB);
+
+
+	}
+
+	public void draw() {
+		background(255);
+
+		if (client.available() && flagRefreshCapture) {
+			// The first time getImage() is called with 
+			// a null argument, it will initialize the PImage
+			// object with the correct size.
+			syphonCapture = client.getImage(syphonCapture, false); 
+			
+			syphonCapture.loadPixels();
+			syphonCapture.updatePixels();
+						
+			dust.clear();
+			
+			dust.copy(syphonCapture, 
+					(int)(syphonUV[UVX1] * syphonCapture.width), 
+					(int)(syphonUV[UVY1] * syphonCapture.height),
+					(int)((syphonUV[UVX2]-syphonUV[UVX1]) * syphonCapture.width), 
+					(int)((syphonUV[UVY2]-syphonUV[UVY1]) * syphonCapture.height),
+					(int)(dustUV[UVX1] * dust.width), 
+					(int)(dustUV[UVY1] * dust.height),
+					(int)((dustUV[UVX2]-dustUV[UVX1]) * dust.width), 
+					(int)((dustUV[UVY2]-dustUV[UVY1]) * dust.height));
+			
+			setupSimulation();
+								
+			flagRefreshCapture = false;
+		}
+
+		updateSimulation();
+
+
+		canvas.beginDraw();
+		canvas.background(0);
+		//canvas.lights();
+
+		drawSimulation();
+
+		randomGust = 0;
+
+		canvas.endDraw();
+
+		image(canvas, 0, 0);
+
+		if(flagDrawSyphonCapture)
+			image(dust, 0, 0);
+
+		server.sendImage(canvas);
+
+		myGust.draw(5, 2);
+		
+		fill(0);
+		text("fps:" + this.frameRate, 10, 25);
+	}
+
+	/* incoming osc message are forwarded to the oscEvent method. */
+	void oscEvent(OscMessage theOscMessage) {
+		//check first if already a Syphen capture has occured
+		if(syphonCapture != null && dust != null){
+			if(theOscMessage.checkAddrPattern("/gust")) {
+				/* check if the typetag is the right one. */
+				if(theOscMessage.checkTypetag("iiiii")) {
+					int posx = (int)map(theOscMessage.get(1).intValue(), 
+							(int)(syphonUV[UVX1] * syphonCapture.width),
+							(int)(syphonUV[UVX2] * syphonCapture.width), 
+							(int)(dustUV[UVX1] * dust.width), 
+							(int)(dustUV[UVX2]* dust.width));
+					int posy = (int)map(theOscMessage.get(2).intValue(),
+							(int)(syphonUV[UVY1] * syphonCapture.height),
+							(int)(syphonUV[UVY2] * syphonCapture.height), 
+							(int)(dustUV[UVY1] * dust.height), 
+							(int)(dustUV[UVY2] * dust.height));
+					int velx = theOscMessage.get(3).intValue();
+					int vely = theOscMessage.get(4).intValue();
+
+					myGust.set(posx, posy, velx, vely);
+
+					//println("### received an osc message /gust with typetag iiiii: x=" + posx + " y=" + posy + " vx=" + velx + " vy=" + vely);
+				}  
+			} 
+		}
+	}
+	
+	public void keyPressed()
+	{
+		if( key == 'c') {
+			flagDrawSyphonCapture = (flagDrawSyphonCapture)? false: true;
+		} 
+		if( key == 'd') {
+			flagRefreshCapture = true;
+		} 
+	}
+
+	class DustImage extends PImage{
+		Vector<PVector> positions;
+		int particleCount;
+		
+		DustImage(int w, int h, int type){
+			super(w, h, type);
+		}
+		
+		void clear(){
+			int i = 0;
+			this.loadPixels();
+			while(i < dust.pixels.length){
+				this.pixels[i++] = 0xffffff;
+			}
+			this.updatePixels();
+		}
+		
+		int countParticles(){
+			int i = 0;
+			positions = new Vector<PVector>();
+			this.loadPixels();
+			while(i < dust.pixels.length){
+				if(this.pixels[i] < 0x888888){
+					positions.add(new PVector(i % width, i / width));
+				}
+				i++;
+			}
+			this.updatePixels();
+			return positions.size();
+		}
+		
+		PVector getPosition(int index){
+			return positions.elementAt(index);
+		}		
+	}
+	
+	class gust {
+		PVector pos;
+		PVector vel;
+		
+		int live;
+		
+		gust(){
+			pos = new PVector();
+			vel = new PVector();
+			live = 255;
+		}
+		
+		boolean isAlive(){
+			return (live < 255)? true: false;
+		}
+		
+		void set(float x, float y, float vx, float vy){
+			pos.set(x, y, 0);
+			vel.set(vx, vy, 0);
+			live = 0;
+		}
+		
+		void age(int cycles){
+			live += cycles;
+		}
+		
+		void draw(int diameter, int size){
+			if(isAlive()){
+				age(64);
+				fill(live);
+				stroke(live);
+				ellipse(pos.x, pos.y, diameter, diameter);
+				line(pos.x, pos.y, (pos.x + vel.x), (pos.y + vel.y));
+			}
+		}
+		
+	}
+	
 	class particle {
 		float x;
 		float y;
@@ -84,7 +384,7 @@ public class Smoke  extends PApplet{
 			int vu = (int)(y/RES);
 
 			if(vi > 0 && vi < lwidth && vu > 0 && vu < lheight) {
-				v[vi][vu].addcolour(2);
+				v[vi][vu].addcolour(TRANSPARENCY);
 
 				float ax = (x%RES)/RES;
 				float ay = (y%RES)/RES;
@@ -193,6 +493,17 @@ public class Smoke  extends PApplet{
 					yvel += mvelY*mod;
 				}
 			}
+			if(myGust.isAlive()) {
+				adj = x - myGust.pos.x;
+				opp = y - myGust.pos.y;
+				dist = sqrt(opp*opp + adj*adj);
+				if(dist < PENSIZE) {
+					if(dist < 4) dist = PENSIZE;
+					mod = PENSIZE/dist;
+					xvel += mvelX*mod;
+					yvel += mvelY*mod;
+				}
+			}
 			if(randomGust > 0) {
 				adj = x - randomGustX;
 				opp = y - randomGustY;
@@ -244,105 +555,6 @@ public class Smoke  extends PApplet{
 		}
 	}
 
-	public void setup() {
-		size(WIDTH,HEIGHT, P3D);
-		canvas = createGraphics(WIDTH, HEIGHT, P3D);
-
-		textFont(createFont("faucet", 24));
-
-		background(100);
-		noStroke();
-		for(int i = 0; i < PNUM; i++) {
-			p[i] = new particle(random(WIDTH/2-20,WIDTH/2+20),random(HEIGHT-20,HEIGHT));
-		}
-		for(int i = 0; i <= lwidth; i++) {
-			for(int u = 0; u <= lheight; u++) {
-				v[i][u] = new vsquare(i*RES,u*RES);
-				vbuf[i][u] = new vbuffer(i*RES,u*RES);
-			}
-		}
-
-		// Create syhpon client to receive frames 
-		// from running server with given name: 
-		client = new SyphonClient(this, "of_Dust_Kin2Syp");
-
-		// Create syhpon server to send frames out.
-		server = new SyphonServer(this, "ProcessingSyphon");
-
-	}
-
-	public void draw() {
-		 
-		if (client.available()) {
-			// The first time getImage() is called with 
-			// a null argument, it will initialize the PImage
-			// object with the correct size.
-			img = client.getImage(img); // load the pixels array with the updated image info (slow)
-			//canvas.image(img, 0, 0);
-			//img = client.getImage(img, false); // does not load the pixels array (faster)
-			//image(img, 0, 0);
-		}
-
-		background(0);
-		fill(255);
-		text("fps:" + this.frameRate, 10, 20);
-
-
-		canvas.beginDraw();
-		canvas.background(0);
-		//canvas.lights();
-
-		int axvel = mouseX-pmouseX;
-		int ayvel = mouseY-pmouseY;
-
-		mouseXvel = (axvel != mouseXvel) ? axvel : 0;
-		mouseYvel = (ayvel != mouseYvel) ? ayvel : 0;
-
-		if(randomGust <= 0) {
-			if(random(0,10)<1) {
-				randomGustMax = (int)random(5,12);
-				randomGust = randomGustMax;
-				randomGustX = random(0,WIDTH);
-				randomGustY = random(0,HEIGHT-10);
-				randomGustSize = random(0,50);
-				if(randomGustX > WIDTH/2) randomGustXvel = random(-8,0);
-				else randomGustXvel = random(0,8);
-				randomGustYvel = random(-2,1);
-			}
-			randomGust--;
-		}
-		
-		for(int i = 0; i < lwidth; i++) {
-			for(int u = 0; u < lheight; u++) {
-				vbuf[i][u].updatebuf(i,u);
-				v[i][u].col = 0;
-			}
-		}
-		
-		for(int i = 0; i < PNUM-1; i++) {
-			p[i].updatepos();
-		}
-		
-		canvas.loadPixels();
-		
-		for(int i = 0; i < lwidth; i++) {
-			for(int u = 0; u < lheight; u++) {
-				v[i][u].addbuffer(i, u);
-				v[i][u].updatevels(mouseXvel, mouseYvel);
-				canvas.pixels[i+u*lwidth] = v[i][u].display(i, u);
-			}
-		}
-		canvas.updatePixels();
-		
-		randomGust = 0;
-				
-		canvas.endDraw();
-		
-		//image(canvas, 0, 0);
-
-		server.sendImage(canvas);
-
-	}
 
 	static public void main(String[] passedArgs) {
 		String[] appletArgs = new String[] { "ch.maybites.prj.dust.sim.Smoke" };
