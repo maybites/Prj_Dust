@@ -7,5 +7,6 @@
 	<classpathentry kind="con" path="org.eclipse.jdt.USER_LIBRARY/libX_java2CBridge"/>
 	<classpathentry kind="con" path="org.eclipse.jdt.USER_LIBRARY/libX_javaCL"/>
 	<classpathentry kind="con" path="org.eclipse.jdt.USER_LIBRARY/Processing2.0"/>
+	<classpathentry kind="con" path="org.eclipse.jdt.USER_LIBRARY/ProcessingExt_oscP5"/>
 	<classpathentry kind="output" path="bin"/>
 </classpath>
