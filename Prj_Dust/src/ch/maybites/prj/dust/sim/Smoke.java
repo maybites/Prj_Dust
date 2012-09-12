@@ -21,6 +21,7 @@ import java.util.*;
 import java.util.zip.*; 
 import java.util.regex.*; 
 
+import javax.script.*;
 import codeanticode.syphon.*;
 import oscP5.*;
 import netP5.*;
@@ -42,6 +43,9 @@ public class Smoke  extends PApplet{
 	int WIDTH = 400;
 	int HEIGHT = 800;
 
+	int MIN_AGE = 300; 
+	int MAX_AGE = 450;
+	
 	int RES = 1;
 	int PENSIZE = 30;
 	
@@ -49,7 +53,7 @@ public class Smoke  extends PApplet{
 		
 	int lwidth = WIDTH/RES;
 	int lheight = HEIGHT/RES;
-	int PNUM = 200000;
+	int PNUM = 400000;
 	vsquare[][] v = new vsquare[lwidth+1][lheight+1];
 	vbuffer[][] vbuf = new vbuffer[lwidth+1][lheight+1];
 
@@ -70,8 +74,10 @@ public class Smoke  extends PApplet{
 	boolean flagRefreshCapture = false;
 	boolean flagSimSetup = false;
 	
-	int playmode = PMODE_SETUP;
-
+	Fader globalBlend = new Fader(0, 255);
+	
+	Player player;
+	
 	SyphonServer server;
 	SyphonClient client;
 
@@ -89,13 +95,103 @@ public class Smoke  extends PApplet{
 	
 	gust myGust = new gust();
 
+	public void setup() {		    
+		size(WIDTH,HEIGHT, P3D);
+		canvas = createGraphics(WIDTH, HEIGHT, P3D);
+
+		textFont(createFont("faucet", 24));
+
+		player = new Player();
+		
+		background(100);
+		noStroke();
+
+		// Create syhpon client to receive frames 
+		// from running server with given name: 
+		client = new SyphonClient(this, "of_Dust_Kin2Syp");
+
+		// Create syhpon server to send frames out.
+		server = new SyphonServer(this, "ProcessingSyphon");
+
+		/* start oscP5, listening for incoming messages at port 12345 */
+		oscP5 = new OscP5(this,12345);
+
+		/* myRemoteLocation is a NetAddress. a NetAddress takes 2 parameters,
+		 * an ip address and a port number. myRemoteLocation is used as parameter in
+		 * oscP5.send() when sending osc packets to another computer, device, 
+		 * application.
+		 */
+		myRemoteLocation = new NetAddress("127.0.0.1",54321);
+		
+		dust = new DustImage(WIDTH, HEIGHT,RGB);
+	}
+
+	public void draw() {
+		player.update();
+		globalBlend.update();
+		
+		if(flagRefreshCapture){
+			captureShadow();
+			flagRefreshCapture = false;
+		}
+
+		background(255);
+		
+		updateSimulation();
+
+		canvas.beginDraw();
+		canvas.background(0);
+		drawSimulation();
+		canvas.endDraw();
+
+		//draw canvas on preview
+		image(canvas, 0, 0);
+
+		//send canvas to fassade
+		server.sendImage(canvas);
+
+		//Everything from here onwards is not displayed on the fassade
+		
+		myGust.draw(5, 2);
+		
+		fill(0);
+		text("fps:" + this.frameRate, 10, 25);
+	}
+
+	void captureShadow(){
+		if (client.available()) {
+			// The first time getImage() is called with 
+			// a null argument, it will initialize the PImage
+			// object with the correct size.
+			syphonCapture = client.getImage(syphonCapture, false); 
+			
+			syphonCapture.loadPixels();
+			syphonCapture.updatePixels();
+						
+			dust.clear();
+			
+			dust.copy(syphonCapture, 
+					(int)(syphonUV[UVX1] * syphonCapture.width), 
+					(int)(syphonUV[UVY1] * syphonCapture.height),
+					(int)((syphonUV[UVX2]-syphonUV[UVX1]) * syphonCapture.width), 
+					(int)((syphonUV[UVY2]-syphonUV[UVY1]) * syphonCapture.height),
+					(int)(dustUV[UVX1] * dust.width), 
+					(int)(dustUV[UVY1] * dust.height),
+					(int)((dustUV[UVX2]-dustUV[UVX1]) * dust.width), 
+					(int)((dustUV[UVY2]-dustUV[UVY1]) * dust.height));
+			
+			setupSimulation();
+								
+		}
+	}
+	
 	private void setupSimulation(){
 		int particleCount = dust.countParticles();
 		println("found " + particleCount + " dust-particles");
 		if(particleCount > 0){
 			for(int i = 0; i < PNUM; i++) {
 				PVector position = dust.getPosition(i % particleCount);
-				p[i] = new particle(position.x, position.y);
+				p[i] = new particle(position.x, position.y, (int)random(MIN_AGE, MAX_AGE));
 			}
 			for(int i = 0; i <= lwidth; i++) {
 				for(int u = 0; u <= lheight; u++) {
@@ -141,7 +237,10 @@ public class Smoke  extends PApplet{
 			}
 
 			for(int i = 0; i < PNUM-1; i++) {
-				p[i].updatepos();
+				if(p[i].isAlive()){
+					p[i].age();
+					p[i].updatepos();
+				}
 			}
 		}
 	}
@@ -154,98 +253,14 @@ public class Smoke  extends PApplet{
 					v[i][u].addbuffer(i, u);
 					v[i][u].updatevels(mouseXvel, mouseYvel);
 					canvas.pixels[i+u*lwidth] = v[i][u].display(i, u);
+					//canvas.pixels[i+u*lwidth] = canvas.pixels[i+u*lwidth] & 0x11ffffff;
 				}
 			}
 			canvas.updatePixels();
 		}
+		randomGust = 0;
 	}
 	
-	public void setup() {
-		size(WIDTH,HEIGHT, P3D);
-		canvas = createGraphics(WIDTH, HEIGHT, P3D);
-
-		textFont(createFont("faucet", 24));
-
-		background(100);
-		noStroke();
-
-		// Create syhpon client to receive frames 
-		// from running server with given name: 
-		client = new SyphonClient(this, "of_Dust_Kin2Syp");
-
-		// Create syhpon server to send frames out.
-		server = new SyphonServer(this, "ProcessingSyphon");
-
-		/* start oscP5, listening for incoming messages at port 12345 */
-		oscP5 = new OscP5(this,12345);
-
-		/* myRemoteLocation is a NetAddress. a NetAddress takes 2 parameters,
-		 * an ip address and a port number. myRemoteLocation is used as parameter in
-		 * oscP5.send() when sending osc packets to another computer, device, 
-		 * application.
-		 */
-		myRemoteLocation = new NetAddress("127.0.0.1",54321);
-		
-		dust = new DustImage(WIDTH, HEIGHT,RGB);
-
-
-	}
-
-	public void draw() {
-		background(255);
-
-		if (client.available() && flagRefreshCapture) {
-			// The first time getImage() is called with 
-			// a null argument, it will initialize the PImage
-			// object with the correct size.
-			syphonCapture = client.getImage(syphonCapture, false); 
-			
-			syphonCapture.loadPixels();
-			syphonCapture.updatePixels();
-						
-			dust.clear();
-			
-			dust.copy(syphonCapture, 
-					(int)(syphonUV[UVX1] * syphonCapture.width), 
-					(int)(syphonUV[UVY1] * syphonCapture.height),
-					(int)((syphonUV[UVX2]-syphonUV[UVX1]) * syphonCapture.width), 
-					(int)((syphonUV[UVY2]-syphonUV[UVY1]) * syphonCapture.height),
-					(int)(dustUV[UVX1] * dust.width), 
-					(int)(dustUV[UVY1] * dust.height),
-					(int)((dustUV[UVX2]-dustUV[UVX1]) * dust.width), 
-					(int)((dustUV[UVY2]-dustUV[UVY1]) * dust.height));
-			
-			setupSimulation();
-								
-			flagRefreshCapture = false;
-		}
-
-		updateSimulation();
-
-
-		canvas.beginDraw();
-		canvas.background(0);
-		//canvas.lights();
-
-		drawSimulation();
-
-		randomGust = 0;
-
-		canvas.endDraw();
-
-		image(canvas, 0, 0);
-
-		if(flagDrawSyphonCapture)
-			image(dust, 0, 0);
-
-		server.sendImage(canvas);
-
-		myGust.draw(5, 2);
-		
-		fill(0);
-		text("fps:" + this.frameRate, 10, 25);
-	}
-
 	/* incoming osc message are forwarded to the oscEvent method. */
 	void oscEvent(OscMessage theOscMessage) {
 		//check first if already a Syphen capture has occured
@@ -271,19 +286,212 @@ public class Smoke  extends PApplet{
 					//println("### received an osc message /gust with typetag iiiii: x=" + posx + " y=" + posy + " vx=" + velx + " vy=" + vely);
 				}  
 			} 
+		}		
+		if(theOscMessage.checkAddrPattern("/kinectstarted")) {
+			player.kinectStarted();
 		}
+		if(theOscMessage.checkAddrPattern("/persondetected")) {
+			player.personDetected();
+		}
+		//println("OSC message received: " + theOscMessage.addrPattern());
+	}
+	
+	void killAndRestartKinect(){
+		runScriptFile("killNRestart.txt");
+	}
+	
+	void runScriptFile(String filename){
+		String lines[] = loadStrings(filename);
+		StringBuffer runScript = new StringBuffer();
+		for (int i =0 ; i < lines.length; i++) {
+			runScript.append(lines[i]);
+			if(i < lines.length - 1)
+				runScript.append("\n");
+		}
+		applescript(runScript.toString());
+	}
+			  		  
+	void applescript(String script){
+		  ScriptEngineManager mgr = new ScriptEngineManager();
+		  ScriptEngine engine = mgr.getEngineByName("AppleScript");
+		  try{
+		    engine.eval(script);
+		  } catch (Exception e){;}
 	}
 	
 	public void keyPressed()
 	{
-		if( key == 'c') {
-			flagDrawSyphonCapture = (flagDrawSyphonCapture)? false: true;
-		} 
-		if( key == 'd') {
+		if( key == 'r') {
 			flagRefreshCapture = true;
 		} 
 	}
+	
+	class Fader{
+		private int min, max;
+		private boolean flagBlend;
+		private int dir;
+		private int steps;
+		private int step;
+		
+		public int value;
+		
+		Fader(int _min, int _max){
+			min = _min;
+			max = _max;
+			flagBlend = false;
+			value = _min;
+		}
+		
+		void start(int _steps, int _dir){
+			flagBlend = true;
+			dir = _dir;
+			steps = _steps;
+			step = (dir > 0) ? 0: steps;
+		}
+		
+		void update(){
+			if(flagBlend){
+				step += dir;
+				if(0 <= step && step <= steps){
+					value = min + (max - min) / steps * step;
+				}else{
+					flagBlend = false;
+				}
+			}
+		}		
+	}
+	
+	class Player{
+		int timer;
+		boolean trigger_person;
+		boolean trigger_kinect_started;		
+		boolean trigger_captured_shadow;		
+		
+		final int PMODE_SETUP = 0;
+		final int PMODE_SETUP_KIN_STARTED = 1;
+		final int PMODE_TRIGGER_PERSON = 2;
+		final int PMODE_START_LED = 3;
+		final int PMODE_RESTART_KINECT = 4;
+		final int PMODE_TRIGGER_KIN_RESTARTED = 5;
+		final int PMODE_SETUP_SIMULATION = 6;
+		final int PMODE_SIMULATION = 7;
+		final int PMODE_DISSOLVE = 8;
+		
+		int playmode;
+		
+		Player(){
+			timer = 0;
+			playmode = PMODE_SETUP;
+			println("Playmode = PMODE_SETUP");
+			resetTrigger();
+		}
+		
+		void kinectStarted(){
+			trigger_kinect_started = true;
+		}
 
+		void personDetected(){
+			trigger_person = true;
+		}
+		
+		void capturedShadow(){
+			trigger_captured_shadow = true;
+		}
+
+		void update(){
+			switch(playmode){
+			case PMODE_SETUP:
+				if(isItTime(5)){
+					killAndRestartKinect();
+					playmode = PMODE_SETUP_KIN_STARTED;
+					resetTrigger();
+					println("Playmode = PMODE_SETUP_KIN_STARTED");
+				}
+				break;
+			case PMODE_SETUP_KIN_STARTED:
+				if(trigger_kinect_started){
+					playmode = PMODE_TRIGGER_PERSON;
+					resetTrigger();
+					println("Playmode = PMODE_TRIGGER_PERSON");
+				}else if(isItTime(30)){
+					println("kinect failed to start, restart again");
+					playmode = PMODE_SETUP;
+					resetTrigger();
+					println("Playmode = PMODE_SETUP");
+				}
+				break;
+			case PMODE_TRIGGER_PERSON:
+				if(trigger_person){
+					playmode = PMODE_START_LED;
+					resetTrigger();
+					println("Playmode = PMODE_START_LED");
+				}else if(isItTime(30)){
+					println("kinect might not work anymore, restart again");
+					playmode = PMODE_SETUP;
+					resetTrigger();
+					println("Playmode = PMODE_SETUP");
+				}
+				break;
+			case PMODE_START_LED:
+				if(isItTime(5)){
+					//StartLED
+					playmode = PMODE_RESTART_KINECT;
+					resetTrigger();
+					println("Playmode = PMODE_RESTART_KINECT");
+				}
+				break;
+			case PMODE_RESTART_KINECT:
+				killAndRestartKinect();
+				playmode = PMODE_TRIGGER_KIN_RESTARTED;
+				resetTrigger();
+				println("Playmode = PMODE_TRIGGER_KIN_RESTARTED");
+				break;
+			case PMODE_TRIGGER_KIN_RESTARTED:
+				if(trigger_kinect_started){
+					playmode = PMODE_SETUP_SIMULATION;
+					resetTrigger();
+					println("Playmode = PMODE_SETUP_SIMULATION");
+				}
+				break;
+			case PMODE_SETUP_SIMULATION:
+				if(isItTime(1)){
+					//StopLED
+					captureShadow();
+					globalBlend.start(10, 1);
+					playmode = PMODE_SIMULATION;
+					resetTrigger();
+					println("Playmode = PMODE_SIMULATION");
+				}
+				break;
+			case PMODE_SIMULATION:
+				if(isItTime(30)){
+					playmode = PMODE_DISSOLVE;
+					globalBlend.start(100, -1);
+					resetTrigger();
+					println("Playmode = PMODE_DISSOLVE");
+				}
+				break;
+			case PMODE_DISSOLVE:
+				if(isItTime(10)){
+					playmode = PMODE_TRIGGER_PERSON;
+					resetTrigger();
+					println("Playmode = PMODE_TRIGGER_PERSON");
+				}
+				break;
+			}
+		}
+		
+		boolean isItTime(int sec){
+			return (timer+sec*1000 < millis());
+		}
+		
+		void resetTrigger(){
+			timer = millis();
+			trigger_person = false;
+			trigger_kinect_started = false;		
+		}
+	}
+	
 	class DustImage extends PImage{
 		Vector<PVector> positions;
 		int particleCount;
@@ -306,7 +514,7 @@ public class Smoke  extends PApplet{
 			positions = new Vector<PVector>();
 			this.loadPixels();
 			while(i < dust.pixels.length){
-				if(this.pixels[i] < 0x888888){
+				if(this.pixels[i] <= - 20000000){
 					positions.add(new PVector(i % width, i / width));
 				}
 				i++;
@@ -365,10 +573,26 @@ public class Smoke  extends PApplet{
 		float yvel;
 		float temp;
 		int pos;
+		int age;
+		int death;
+		boolean isalive;
 
-		particle(float xIn, float yIn) {
+		particle(float xIn, float yIn, int _death) {
 			x = xIn;
 			y = yIn;
+			death = _death;
+			age = 0;
+			isalive = true;
+		}
+		
+		boolean isAlive(){
+			if(isalive)
+				isalive = (age < death)? true: false;
+			return isalive;
+		}
+		
+		void age(){
+			age++;
 		}
 
 		void reposition() {
@@ -408,9 +632,10 @@ public class Smoke  extends PApplet{
 				y += yvel;
 			}
 			else {
-				reposition();
+				isalive = false;
+				//reposition();
 			}
-			if(random(0,400) < 1) reposition();
+			//if(random(0,400) < 1) reposition();
 
 			xvel *= 0.6;
 			yvel *= 0.6;
@@ -449,10 +674,23 @@ public class Smoke  extends PApplet{
 		float xvel;
 		float yvel;
 		float col;
-
+		
+		int bg_r, bg_g, bg_b;
+		
 		vsquare(int xIn,int yIn) {
 			x = xIn;
 			y = yIn;
+			setBackgroundColor(255);
+		}
+
+		void setBackgroundColor(int bgcolor){
+			setBackgroundColor(bgcolor, bgcolor, bgcolor);
+		}
+		
+		void setBackgroundColor(int r, int g, int b){
+			bg_r = r;
+			bg_g = g;
+			bg_b = b;
 		}
 
 		void addbuffer(int i, int u) {
@@ -521,7 +759,7 @@ public class Smoke  extends PApplet{
 
 		void addcolour(int amt) {
 			col += amt;
-			if(col > 196) col = 196;
+			if(col > 255) col = 255;
 		}
 
 		int display(int i, int u) {
@@ -545,17 +783,11 @@ public class Smoke  extends PApplet{
 						)*0.3f;
 				tcol = (int)(tcol+col*0.5);
 			}
-			//else {
-			//tcol = (int)col;
-			//}
-			//canvas.fill(255, 255-tcol, 255-tcol, 255-tcol);
-			//canvas.rect(x,y,RES,RES); // uses too much time to draw!!!!
 			col = 0;
-			return color(255-tcol, 255-tcol, 255-tcol);
+			return color(bg_r-tcol, bg_g-tcol, bg_b-tcol, globalBlend.value);
 		}
 	}
-
-
+	
 	static public void main(String[] passedArgs) {
 		String[] appletArgs = new String[] { "ch.maybites.prj.dust.sim.Smoke" };
 		if (passedArgs != null) {
