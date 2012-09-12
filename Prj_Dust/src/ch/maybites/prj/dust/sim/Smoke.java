@@ -4,6 +4,8 @@ package ch.maybites.prj.dust.sim;
 // View the applet in use at http://bodytag.org/
 
 import processing.core.*;
+import processing.serial.*;
+
 import processing.opengl.*;
 import processing.data.*; 
 
@@ -43,8 +45,8 @@ public class Smoke  extends PApplet{
 	int WIDTH = 400;
 	int HEIGHT = 800;
 
-	int MIN_AGE = 300; 
-	int MAX_AGE = 450;
+	int MIN_AGE = 700; 
+	int MAX_AGE = 900;
 	
 	int RES = 1;
 	int PENSIZE = 30;
@@ -75,6 +77,7 @@ public class Smoke  extends PApplet{
 	boolean flagSimSetup = false;
 	
 	Fader globalBlend = new Fader(0, 255);
+	Fader led = new Fader(0, 255);
 	
 	Player player;
 	
@@ -86,6 +89,7 @@ public class Smoke  extends PApplet{
 	float[] syphonUV = {0.2f, 0.0f, 0.8f, 1.0f}; //x1, y1, x2, y2 from upper left corner!!!
 	float[] dustUV = {0.0f, 0.3f, 1.0f, 1.0f}; //x1, y1, x2, y2 from upper left corner!!!
 	
+	Serial arduino;
 	
 	PGraphics canvas;
 
@@ -97,6 +101,11 @@ public class Smoke  extends PApplet{
 
 	public void setup() {		    
 		size(WIDTH,HEIGHT, P3D);
+
+		println("Available serial ports:");
+		println(Serial.list());
+		arduino = new Serial(this, Serial.list()[0], 9600);  
+
 		canvas = createGraphics(WIDTH, HEIGHT, P3D);
 
 		textFont(createFont("faucet", 24));
@@ -129,6 +138,9 @@ public class Smoke  extends PApplet{
 	public void draw() {
 		player.update();
 		globalBlend.update();
+		led.update();
+		if(led.isFading())
+			arduino.write(led.value);
 		
 		if(flagRefreshCapture){
 			captureShadow();
@@ -215,6 +227,7 @@ public class Smoke  extends PApplet{
 				mouseYvel = (ayvel != mouseYvel) ? ayvel : 0;
 			}
 
+			/**
 			if(randomGust <= 0) {
 				if(random(0,10)<1) {
 					randomGustMax = (int)random(5,12);
@@ -228,7 +241,8 @@ public class Smoke  extends PApplet{
 				}
 				randomGust--;
 			}
-
+			**/
+			
 			for(int i = 0; i < lwidth; i++) {
 				for(int u = 0; u < lheight; u++) {
 					vbuf[i][u].updatebuf(i,u);
@@ -342,6 +356,10 @@ public class Smoke  extends PApplet{
 			value = _min;
 		}
 		
+		boolean isFading(){
+			return flagBlend;
+		}
+		
 		void start(int _steps, int _dir){
 			flagBlend = true;
 			dir = _dir;
@@ -433,12 +451,10 @@ public class Smoke  extends PApplet{
 				}
 				break;
 			case PMODE_START_LED:
-				if(isItTime(5)){
-					//StartLED
-					playmode = PMODE_RESTART_KINECT;
-					resetTrigger();
-					println("Playmode = PMODE_RESTART_KINECT");
-				}
+				led.start(50, 1);
+				playmode = PMODE_RESTART_KINECT;
+				resetTrigger();
+				println("Playmode = PMODE_RESTART_KINECT");
 				break;
 			case PMODE_RESTART_KINECT:
 				killAndRestartKinect();
@@ -451,11 +467,16 @@ public class Smoke  extends PApplet{
 					playmode = PMODE_SETUP_SIMULATION;
 					resetTrigger();
 					println("Playmode = PMODE_SETUP_SIMULATION");
+				}else if(isItTime(20)){
+					println("kinect might not work anymore, restart again");
+					playmode = PMODE_RESTART_KINECT;
+					resetTrigger();
+					println("Playmode = PMODE_RESTART_KINECT");
 				}
 				break;
 			case PMODE_SETUP_SIMULATION:
 				if(isItTime(1)){
-					//StopLED
+					led.start(10, -1);
 					captureShadow();
 					globalBlend.start(10, 1);
 					playmode = PMODE_SIMULATION;
@@ -464,9 +485,9 @@ public class Smoke  extends PApplet{
 				}
 				break;
 			case PMODE_SIMULATION:
-				if(isItTime(30)){
+				if(isItTime(60)){
 					playmode = PMODE_DISSOLVE;
-					globalBlend.start(100, -1);
+					globalBlend.start(50, -1);
 					resetTrigger();
 					println("Playmode = PMODE_DISSOLVE");
 				}
