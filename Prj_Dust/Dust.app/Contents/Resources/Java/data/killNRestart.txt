@@ -1,0 +1,8 @@
+set app_name to "of_Dust_Kin2Syp"
+set the_pid to (do shell script "ps ax | grep " & (quoted form of app_name) & " | grep -v grep | awk '{print $1}'")
+if the_pid is not "" then do shell script ("kill -9 " & the_pid)
+tell application "Finder"
+	activate
+	open application file "of_Dust_Kin2Syp.app" of folder "bin" of folder "of_Dust_Kinect2Syphon" of folder "myApps" of folder "apps" of folder "of_0071" of folder "openFrameworks" of folder "02_code" of folder "Arbeiten" of folder "maybites" of folder "Users" of startup disk
+	close Finder window 1
+end tell

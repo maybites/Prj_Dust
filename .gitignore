@@ -31,3 +31,8 @@ Prj_Dust/bin/ch/maybites/prj/dust/sim/SmokeOriginal.class
 Prj_Dust/bin/ch/maybites/prj/dust/sim/SypClient.class
 Prj_Dust/bin/ch/maybites/prj/dust/sim/Smoke$Fader.class
 Prj_Dust/bin/ch/maybites/prj/dust/sim/Smoke$Player.class
+Prj_Dust/bin/Dust$DustImage.class
+Prj_Dust/bin/Dust$Fader.class
+Prj_Dust/bin/Dust$Player.class
+Prj_Dust/bin/Dust$gust.class
+Prj_Dust/bin/ch/maybites/prj/dust/sim/SyphnTransperencyServer.class
